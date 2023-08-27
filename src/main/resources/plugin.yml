@@ -1,0 +1,9 @@
+  name: HeadHunter
+  main: strauji.headhunter.HeadHunter
+  version: 1.0.0
+  api-version: '1.16'
+  commands:
+    checkheads:
+      description: Check the last known info about player heads
+      usage: /checkheads
+      permission: headhunter.checkheads
