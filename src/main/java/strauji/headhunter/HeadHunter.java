@@ -19,6 +19,15 @@ import java.io.IOException;
 public class HeadHunter extends JavaPlugin {
     private File customConfigFile;
     private FileConfiguration customConfig;
+    public boolean ObeyPVP = false;
+    public int minDoomLevel = 1;
+    public int maxDoomLevel = 32;
+    public boolean increaseDoomLevel = true;
+    public boolean allowHeadCrafting = true;
+    public boolean allowRessurecting = true;
+    public boolean banKilledPlayer = false;
+    public String kickMessage = "WASTED!";
+
     @Override
     public void onEnable() {
         getLogger().info("Beest sure thy headeth is eft!");
