@@ -3,7 +3,18 @@
   version: 1.0.0
   api-version: '1.16'
   commands:
-    checkheads:
-      description: Check the last known info about player heads
-      usage: /checkheads
+    checkhead:
+      description: Check the state of a player's head
+      usage: /checkhead <player name>
       permission: headhunter.checkheads
+      default: false
+    togglepvp:
+      description: Toggle PVP for the sender's world
+      usage: /togglepvp <true | false>
+      permission: headhunter.togglepvp
+      default: op
+    resetplayer:
+      description: Gives a new start to a player
+      usage: /resetplayer <player name>
+      permission: headhunter.resetplayer
+      default: op
