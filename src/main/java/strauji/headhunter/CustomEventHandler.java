@@ -1,6 +1,8 @@
 package strauji.headhunter;
 
 import com.jeff_media.customblockdata.CustomBlockData;
+import net.md_5.bungee.api.ChatMessageType;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
@@ -14,21 +16,18 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.*;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.inventory.*;
-import org.bukkit.event.player.PlayerDropItemEvent;
-import org.bukkit.event.player.PlayerItemHeldEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.*;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.CompassMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CustomEventHandler implements Listener {
@@ -37,19 +36,27 @@ public class CustomEventHandler implements Listener {
     @EventHandler //This should give the player their head when they first join only
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if(player.isOp() || player.hasPermission("headhunter.unhuntable")) return;
         if (headHunter == null) headHunter = pluginInstance.getHeadHunter();
 
-        if (!headHunter.contains(player.getUniqueId()+".receivedHead") ||!Boolean.valueOf(headHunter.get(player.getUniqueId()+".receivedHead").toString())){
-            pluginInstance.resetPlayer(player.getUniqueId());
-            headHunter.set(player.getName()+".uuid", player.getUniqueId().toString());
-            headHunter.set(player.getUniqueId()+".receivedHead", true);
+        if((!headHunter.contains(player.getUniqueId()+".grace"))
+                && pluginInstance.getConfig().contains("playerGraceSec"))
+        {
+            headHunter.set(player.getName() + ".uuid", player.getUniqueId().toString());
+            headHunter.set(player.getUniqueId()+".grace", pluginInstance.getConfig().get("playerGraceSec"));
+            int graceLeft =  Integer.parseInt(pluginInstance.getConfig().get("playerGraceSec").toString());
+            player.setMetadata("grace", new FixedMetadataValue(pluginInstance,graceLeft ));
+            startGraceTimer(1, player);
 
-            Bukkit.broadcastMessage(String.format(pluginInstance.getConfig().get("msg."+pluginInstance.languageId+".firstLogin").toString(),player.getDisplayName()));
+        }else if(headHunter.contains(player.getUniqueId()+".grace") &&
+                (Integer.parseInt(headHunter.get(player.getUniqueId()+".grace").toString()) > 0))
+        {
+            int graceLeft =  (Integer.parseInt(headHunter.get(player.getUniqueId()+".grace").toString()));
+            player.setMetadata("grace", new FixedMetadataValue(pluginInstance,graceLeft ));
+            startGraceTimer(1, player);
+        }
 
-            VoodoPlayerHead item = new VoodoPlayerHead(player, false);
-            player.getInventory().addItem(item.getInternalReference());
-            UpdateHeadTracker(item, (OfflinePlayer) player);
-        }else{
+        else{
             if(headHunter.contains(player.getUniqueId()+".head.impendingDoom")){ //Makes the player face their fate if they were killed while offline
                 if(headHunter.get(player.getUniqueId()+".head.impendingDoom").equals(true)){
                     Doom(player);
@@ -60,7 +67,8 @@ public class CustomEventHandler implements Listener {
             if((!player.getWorld().getPVP() && pluginInstance.resurrectOffPVP)){
                 resurrectPlayer(player.getUniqueId());
             }else if (  !CheckIfHeadExists(player.getUniqueId().toString()) && player.getGameMode() == GameMode.SURVIVAL) {
-
+                if(headHunter.contains(player.getUniqueId().toString()+".head.safeRespawn"))
+                    if(!Boolean.valueOf(headHunter.get(player.getPlayer().getUniqueId().toString()+".head.safeRespawn").toString()))
                 Doom(player);
             }
 
@@ -89,15 +97,63 @@ public class CustomEventHandler implements Listener {
         ItemStack boots = inventory.getBoots();
         ItemStack leggings = inventory.getLeggings();
         ItemStack offhand = inventory.getItemInOffHand();
-
-        if(null != helmet && RemoveHead(helmet, player)) inventory.setHelmet(null);
-        if(null != offhand && RemoveHead(offhand, player)) inventory.setItemInOffHand(null);
-        if(null != chest && RemoveHead(chest, player)) inventory.setChestplate(null);
-        if(null != boots && RemoveHead(boots, player)) inventory.setBoots(null);
-        if(null != leggings && RemoveHead(leggings, player)) inventory.setLeggings(null);
+        if(CheckIfVoodoHead(helmet))
+            if(RemoveHead(helmet, player)) inventory.setHelmet(null);
+        if(CheckIfVoodoHead(offhand))
+            if( RemoveHead(offhand, player)) inventory.setItemInOffHand(null);
+        if(CheckIfVoodoHead(chest))
+            if(RemoveHead(chest, player)) inventory.setChestplate(null);
+        if(CheckIfVoodoHead(boots))
+            if(RemoveHead(boots, player)) inventory.setBoots(null);
+        if(CheckIfVoodoHead(leggings))
+            if( RemoveHead(leggings, player)) inventory.setLeggings(null);
+        if(player.hasMetadata("grace")) {
+            headHunter.set(player.getUniqueId()+".grace", player.getMetadata("grace").get(0).asInt());
+            pluginInstance.SaveToDisk();
+        }
     }
 
+    public void startGraceTimer( int interval, Player player){
+        new BukkitRunnable(){
+            @Override
+            public void run() {
+                if(player.hasMetadata("grace")){
+                    if(!player.isOnline()){
+                        this.cancel();
+                        return;
+                    }
+                    int graceLeft = player.getMetadata("grace").get(0).asInt()-1;
+                    player.removeMetadata("grace", pluginInstance);
+                    if(graceLeft > 0){
+                        player.setMetadata("grace", new FixedMetadataValue(pluginInstance, graceLeft));
+                        int hours = (int) Math.floor((float)graceLeft/3600);
+                        int minutes = (int) Math.floor(graceLeft - hours*3600)/60;
+                        int seconds = (graceLeft-hours*3600) % 60;
+                        sendActionbar(player, String.format(pluginInstance.getConfig().get("msg."
+                                + pluginInstance.languageId + ".graceLeft").toString(),
+                              hours, minutes, seconds ));
+                    }else{ //Grace period ended
+                        if (!headHunter.contains(player.getUniqueId()+".receivedHead")
+                                ||!Boolean.valueOf(headHunter.get(player.getUniqueId()+".receivedHead").toString()))
+                        {
+                            pluginInstance.resetPlayer(player.getUniqueId());
 
+                            headHunter.set(player.getUniqueId() + ".receivedHead", true);
+                            player.sendMessage(String.format(pluginInstance.getConfig()
+                                    .get("msg." + pluginInstance.languageId + ".firstLogin")
+                                    .toString(), player.getDisplayName()));
+                            VoodoPlayerHead item = new VoodoPlayerHead(player, false);
+                            player.getInventory().addItem(item.getInternalReference());
+                            UpdateHeadTracker(item, (OfflinePlayer) player);
+                            headHunter.set(player.getUniqueId()+".grace", 0);
+                            this.cancel();
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(pluginInstance, interval, interval* 20L);
+
+    }
     public void resurrectPlayer(UUID uuid){
         Object doomed =  headHunter.get(uuid+".head.doomed");
         OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
@@ -133,6 +189,12 @@ public class CustomEventHandler implements Listener {
         }
         headHunter.set(owner+".receivedHead", true);
     }
+    private void sendActionbar(Player player, String message) {
+        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(format(message)));
+    }
+    private String format(String arg) {
+        return ChatColor.translateAlternateColorCodes('&', arg);
+    }
     @EventHandler
     public void onEntityPickupItem(EntityPickupItemEvent e){ //Prevent non players from picking up the head
         Entity entity = e.getEntity();
@@ -163,9 +225,9 @@ public class CustomEventHandler implements Listener {
     }
     @EventHandler
     public void onItemDespawn(ItemDespawnEvent e){
-        if  (!e.getEntity().isDead() && e.getEntity().getType() == EntityType.DROPPED_ITEM){
-            preventNonPVPHeadHunt(e.getEntity());
-        }
+       // if(e.getEntity() instanceof Item item){
+            if(CheckIfVoodoHead(e.getEntity().getItemStack())) e.setCancelled(true);
+
     }
     @EventHandler
     public  void onEntityCombust(EntityCombustEvent e){
@@ -176,9 +238,12 @@ public class CustomEventHandler implements Listener {
     }
     @EventHandler
     public void onEntityDamage(EntityDamageEvent e){
+        //if(e.getEntity() instanceof Item item){
+     //       if(CheckIfVoodoHead(item.getItemStack())) e.setCancelled(true);
+      //  }
 
         if  (!e.getEntity().isDead() && e.getEntity().getType() == EntityType.DROPPED_ITEM){
-            preventNonPVPHeadHunt(e.getEntity());
+           preventNonPVPHeadHunt(e.getEntity());
         }
     }
     public void preventNonPVPHeadHunt(Entity e){
@@ -188,7 +253,7 @@ public class CustomEventHandler implements Listener {
                 HeadHunted(item);
                 e.getWorld().strikeLightning(e.getLocation());
             }else{
-                placeHead(item, getNearestEmptySpace(e.getLocation(), 20, e.getWorld()).getLocation());
+                placeHead(item, e.getLocation());
             }
             e.remove();
         }
@@ -198,6 +263,7 @@ public class CustomEventHandler implements Listener {
         for (Block E : e.getBlocks()) {
             if(CheckIfVoodoHead(E)){
                 e.setCancelled(true);
+
             }
         }
     }
@@ -229,14 +295,54 @@ public class CustomEventHandler implements Listener {
             OfflinePlayer affected = Bukkit.getOfflinePlayer(owner_uuid);
             e.setDropItems(false);
             Player breaker = e.getPlayer();
-            if(((!pluginInstance.ObeyPVP || e.getBlock().getWorld().getPVP() )) || breaker.getUniqueId() == affected.getUniqueId()){
-                BlockHeadToSkull(breaker, block);
-                breaker.getWorld().getBlockAt(block.getLocation()).setType(Material.AIR);
-            }else{
-                e.setCancelled(true);
-            }
+           // if(((!pluginInstance.ObeyPVP || e.getBlock().getWorld().getPVP() )) || breaker.getUniqueId() == affected.getUniqueId()){
 
+            BlockHeadToSkull(breaker, block);
+
+
+
+          //  }else{
+          //     e.setCancelled(true);
+           // }
+            breaker.getWorld().getBlockAt(block.getLocation()).getState().update(true,true);
         }
+    }
+    @EventHandler
+    public void onPlayerDeathEvent(PlayerDeathEvent e){
+        if(null == e.getEntity().getKiller()){
+            e.getDrops().forEach(itemStack -> {
+                if(CheckIfVoodoHead(itemStack)){
+                    NamespacedKey owner_id  = new NamespacedKey(pluginInstance, "owner_id");
+                    ItemMeta headMeta = itemStack.getItemMeta();
+                    boolean hasOwner = headMeta.getPersistentDataContainer().has(owner_id, PersistentDataType.STRING);
+                    if(hasOwner){
+                        String owner =headMeta.getPersistentDataContainer().get(owner_id, PersistentDataType.STRING);
+
+                        if(owner.equals(e.getEntity().getUniqueId().toString())){
+                            headHunter.set(e.getEntity().getUniqueId().toString()+".head.safeRespawn", true);
+                        }
+                    }
+                }
+            });
+            e.getDrops().removeIf((ItemStack item) -> (CheckIfVoodoHead(item)));
+
+           // for(int i = 0; i< e.getDrops().size(); i++){
+            //    if(CheckIfVoodoHead(e.getDrops().get(i)))
+              //      e.getDrops().remove(i);
+         //   }
+        }
+
+
+    }
+    @EventHandler
+    public void onPlayerRespawn(PlayerRespawnEvent e){
+        if(headHunter.contains(e.getPlayer().getUniqueId().toString()+".head.safeRespawn"))
+            if(Boolean.valueOf(headHunter.get(e.getPlayer().getUniqueId().toString()+".head.safeRespawn").toString())){
+                headHunter.set(e.getPlayer().getUniqueId().toString()+".head.safeRespawn", false);
+                VoodoPlayerHead item = new VoodoPlayerHead(e.getPlayer(), false);
+                e.getPlayer().getInventory().addItem(item.getInternalReference());
+                UpdateHeadTracker(item, (OfflinePlayer) e.getPlayer());
+            }
     }
     @EventHandler
     public void onEntityExplode(EntityExplodeEvent e){
@@ -261,7 +367,14 @@ public class CustomEventHandler implements Listener {
         ItemStack item = e.getItemInHand();
        if(CheckIfVoodoHead(item)) placeHead(item, e.getBlock().getLocation());
     }
-
+    @EventHandler
+    public void onPlayerInteract(PlayerInteractEvent e){
+        if(CheckIfVoodoHead(e.getPlayer().getItemInUse())) e.setCancelled(true);
+    }
+    @EventHandler
+    public void onPlayerInteractAtEntity(PlayerInteractAtEntityEvent e){
+        if(CheckIfVoodoHead(e.getPlayer().getItemInUse())) e.setCancelled(true);
+    }
     @EventHandler
     public void onPrepareAnvil(PrepareAnvilEvent e){
         ItemStack slot0 = e.getInventory().getItem(0);
@@ -319,18 +432,42 @@ public class CustomEventHandler implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryClick(InventoryClickEvent e){
         ItemStack itemStack = e.getCursor();
-
+        if(itemStack == null) return;
         if(CheckIfVoodoHead(itemStack)){
             Inventory inventory= e.getClickedInventory();
-            if(inventory.getType() == InventoryType.ENDER_CHEST || inventory.getType()== InventoryType.SHULKER_BOX){
+
+            try{
+                boolean validInventory =  inventory.getType() == InventoryType.FURNACE
+                        || inventory.getType() == InventoryType.SMOKER || inventory.getType() == InventoryType.BARREL ||
+                        inventory.getType() == InventoryType.CHEST || inventory.getType() == InventoryType.PLAYER ||
+                        inventory.getType() == InventoryType.CREATIVE || inventory.getType() == InventoryType.DROPPER ||
+                        inventory.getType() == InventoryType.DISPENSER ;
+                if(e.getView().getTitle().toLowerCase().contains("ender") || e.getView().getTitle().toLowerCase().contains("shulker"))
+                    validInventory = false;
+                if(!validInventory){
+                    e.setCancelled(true);
+                }
+            }catch (Exception ignored){
                 e.setCancelled(true);
             }
+
             UpdateHeadTracker(itemStack, (OfflinePlayer) e.getWhoClicked());
 
         }
 
     }
+    @EventHandler
+    public void onCraftItem(CraftItemEvent e){
+        if(e.getInventory().contains(Material.PLAYER_HEAD)){
+            e.getInventory().all(Material.PLAYER_HEAD).forEach((integer, itemStack) -> {
+                if(CheckIfVoodoHead(itemStack)){
+                    e.setCancelled(true);
+                    return;
 
+                }
+            });
+        }
+    }
     @EventHandler
     public void onInventoryOpen(InventoryOpenEvent e){
         Inventory inventory = e.getInventory();
@@ -346,8 +483,16 @@ public class CustomEventHandler implements Listener {
     public void onInventoryClose(InventoryCloseEvent e){
         Inventory inventory = e.getInventory();
         Player player = (Player) e.getPlayer();
-        if(inventory.getType() == InventoryType.ENDER_CHEST || inventory.getType()== InventoryType.SHULKER_BOX){
-           if(inventory.contains(Material.PLAYER_HEAD)){
+        boolean validInventory =  inventory.getType() == InventoryType.FURNACE
+                || inventory.getType() == InventoryType.SMOKER || inventory.getType() == InventoryType.BARREL ||
+                inventory.getType() == InventoryType.CHEST || inventory.getType() == InventoryType.PLAYER ||
+                inventory.getType() == InventoryType.CREATIVE || inventory.getType() == InventoryType.DROPPER ||
+                inventory.getType() == InventoryType.DISPENSER ;
+        if(e.getView().getTitle().toLowerCase().contains("ender") || e.getView().getTitle().toLowerCase().contains("shulker"))
+            validInventory = false;
+
+        if( !validInventory){
+           if(inventory.contains(Material.PLAYER_HEAD) ){
 
                inventory.all(Material.PLAYER_HEAD).forEach((key, value)->
                        {
@@ -370,6 +515,10 @@ public class CustomEventHandler implements Listener {
             UpdateHeadTracker(value, player);
         });
     }
+    @EventHandler
+    private void PlayerArmorStandManipulateEvent(PlayerArmorStandManipulateEvent e){
+        if(CheckIfVoodoHead(e.getPlayerItem())) e.setCancelled(true);
+    }
     private boolean CheckIfVoodoHead(Block skull){
         CustomBlockData customBlockData = new CustomBlockData(skull, pluginInstance);
         NamespacedKey owner_id  = new NamespacedKey(pluginInstance, "owner_id");
@@ -377,7 +526,7 @@ public class CustomEventHandler implements Listener {
         return  (skull.getType() == Material.PLAYER_HEAD && customBlockData.has(owner_id, PersistentDataType.STRING));
     }
     private boolean CheckIfVoodoHead(ItemStack head){
-        boolean isHead = head.getType() == Material.PLAYER_HEAD;
+        boolean isHead = null != head && head.getType() == Material.PLAYER_HEAD;
         if (!isHead) return false;
         NamespacedKey owner_id  = new NamespacedKey(pluginInstance, "owner_id");
         NamespacedKey last_wielder_id  = new NamespacedKey(pluginInstance, "last_wielder");
@@ -395,12 +544,13 @@ public class CustomEventHandler implements Listener {
     }
     private boolean RemoveHead(ItemStack head, Player player){
         if (head.getType() == Material.AIR) return true; //sometimes a bit of air slips in
-        Location pos= player.getLocation();
-        Block emptySpace = getNearestEmptySpace(pos, 10, player.getWorld());
-        emptySpace = placeHead(head, emptySpace.getLocation());
+
+        Block emptySpace = player.getLocation().getBlock();
+        if(emptySpace.getType() == Material.PLAYER_HEAD) emptySpace
+                = getNearestEmptySpace(emptySpace.getLocation(), 5, player.getWorld());
         NamespacedKey owner_id  = new NamespacedKey(pluginInstance, "owner_id");
-        CustomBlockData customBlockData = new CustomBlockData(emptySpace, pluginInstance);
-        String owner_uuid = customBlockData.get(owner_id, PersistentDataType.STRING).toString();
+        CustomBlockData customBlockData = new CustomBlockData(placeHead(head, emptySpace.getLocation()), pluginInstance);
+        String owner_uuid = customBlockData.get(owner_id, PersistentDataType.STRING);
         String player_uuid =((OfflinePlayer)player).getUniqueId().toString();
 
 
@@ -437,7 +587,7 @@ public class CustomEventHandler implements Listener {
                     Location deviation = new Location(world, multi*i, multj*j, multw*w);
                     Location new_location = pos.clone();
                     Block bl = world.getBlockAt(new_location.add(deviation));
-                    if (bl.getType() == Material.AIR){
+                    if (bl.getType() == Material.AIR || !bl.getType().isSolid()){
                         return bl;
                     }
                 }
@@ -460,6 +610,7 @@ public class CustomEventHandler implements Listener {
                 }else {//then we will drop the head as an item, because the head shouldn't be deleted
                    player.getWorld().dropItem(player.getLocation(), item);
                 }
+                player.getWorld().getBlockAt(skull.getLocation()).setType(Material.AIR);
                 UpdateHeadTracker(item.getInternalReference(), player);
 
             }
@@ -476,11 +627,28 @@ public class CustomEventHandler implements Listener {
             UUID uuid_killer = UUID.fromString(last_wieldr);
             OfflinePlayer affected =  Bukkit.getOfflinePlayer(uuid_owner);
             OfflinePlayer killer = Bukkit.getOfflinePlayer(uuid_killer);
+
+            Calendar c = Calendar.getInstance();
+            c.setTimeInMillis(System.currentTimeMillis());
+
+            String date = c.get(Calendar.DAY_OF_MONTH)+"-"+c.get(Calendar.MONTH)+"-"+c.get(Calendar.YEAR);
+            String time = c.get(Calendar.HOUR_OF_DAY)+":"+c.get(Calendar.MINUTE)+":"+c.get(Calendar.SECOND);
+
+
             if(affected.hasPlayedBefore()){
                 if(affected.isOnline()){
                     Doom(affected.getPlayer());
                 }else{ //TRACK THE HEAD
                     headHunter.set(affected.getUniqueId()+".head.impendingDoom", true);
+                    try{
+                        headHunter.set(affected.getUniqueId()+".head.killer", killer.getName());
+                    }catch (Exception ignored){
+                        headHunter.set(affected.getUniqueId()+".head.killer", killer.getUniqueId());
+                    }
+
+
+
+                    headHunter.set(affected.getUniqueId()+".head.time", date + " " + time );
 
                 }
                 headHunter.set(affected.getUniqueId()+".head.destroyed", true);
@@ -668,13 +836,26 @@ public class CustomEventHandler implements Listener {
     }
 
     private void Doom(Player affected){
-
-        if(affected.getPlayer().getGameMode() != GameMode.SPECTATOR){
+        boolean doomable = affected.getGameMode() != GameMode.SPECTATOR;
+        doomable = doomable || affected.getGameMode() != GameMode.CREATIVE;
+        doomable = doomable || !affected.isOp();
+        doomable = doomable || !affected.hasPermission("headhunter.unhuntable");
+        if(doomable){
 
 
 
             if (pluginInstance.banKilledPlayer){
-                Bukkit.getBanList(BanList.Type.NAME).addBan(affected.getName(), pluginInstance.getConfig().get("msg."+pluginInstance.languageId+".banMessage").toString(),null, "HEADHUNTER");
+                String killer = "n/a";
+                try{
+                    killer =  ChatColor.RED+""+ChatColor.BOLD
+                            +headHunter.get(affected.getUniqueId().toString()+".head.killer").toString()+ChatColor.RESET;
+                }catch (Exception ignored){}
+
+                Bukkit.getBanList(BanList.Type.NAME).addBan(affected.getName(), String.format(pluginInstance.getConfig()
+                        .get("msg." + pluginInstance.languageId + ".banMessage").toString(),
+                        killer,
+                        headHunter.get(affected.getUniqueId().toString()+".head.time")
+                        ),null, "HEADHUNTER");
                 affected.kickPlayer(pluginInstance.kickMessage);
             }else{
                 affected.getPlayer().setHealth(0);

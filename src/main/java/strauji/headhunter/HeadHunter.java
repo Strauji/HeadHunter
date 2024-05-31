@@ -1,5 +1,6 @@
 package strauji.headhunter;
 
+import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -50,8 +51,8 @@ public class HeadHunter extends JavaPlugin {
             entry("msg.pt_br.headName", "A cabeça de %s"),
             entry("msg.pt_br.firstLogin", "Bem vindo ao servidor, %s! Como presentinho de boas vindas você recebeu a sua cabeça!\nProteja ela como se sua vida dependesse disso...\nPois ela depende. "),
             entry("msg.en_us.firstLogin", "Welcome to the server, %s! As a newcomer gift, you've received your own head!\nProtect it as if your life depends on it...\nBecause it does. "),
-            entry("msg.en_us.banMessage", "You've been killed! You'll be allowed back when the PVP ends or if someone resurrects you!"),
-            entry("msg.pt_br.banMessage", "Você foi morto! Você poderá se juntar novamente ao servidor quando o PVP acabar ou se alguém te ressucitar!"),
+            entry("msg.en_us.banMessage", "You've been killed by %s at %s! You'll be allowed back when the PVP ends or if someone resurrects you!"),
+            entry("msg.pt_br.banMessage", "Você foi morto por %s na data %s! Você poderá se juntar novamente ao servidor quando o PVP acabar ou se alguém te ressucitar!"),
             entry("msg.pt_br.headDestroyed", "Essa cabeça não pôde ser encontrada!"),
             entry("msg.en_us.headDestroyed", "That head is nowhere to be found!"),
             entry("msg.en_us.headCarried", "That head is being safely carried by someone"),
@@ -74,6 +75,9 @@ public class HeadHunter extends JavaPlugin {
             entry("msg.pt_br.pvpStateNotChanged", "O modo PVP já estava definido como %s"),
             entry("msg.en_us.compassName", "Tracking device for %s"),
             entry("msg.pt_br.compassName", "Rastreador de %s"),
+            entry("msg.pt_br.graceLeft", "Imunidade acaba em %sh %sm %ss"),
+            entry("msg.en_us.graceLeft", "Grace period ends in %sh %sm %ss"),
+
             entry("obeyPVP",true),
             entry("minDoomLevel",1),
             entry("maxDoomLevel",32),
@@ -89,7 +93,10 @@ public class HeadHunter extends JavaPlugin {
             entry("resurrectOffPVP", false),
             entry("kickMessage",kickMessage),
             entry("compassBufferRadius",250),
-            entry("compassCost",15)
+            entry("compassCost",15),
+            entry("playerGraceSec", 360)
+
+
     );
     @Override
     public void onEnable() {
@@ -103,6 +110,8 @@ public class HeadHunter extends JavaPlugin {
         PluginConfig();
         HeadHunterConfig();
         if(allowHeadCrafting) RegisterPlayerHeadRecipe();
+        int pluginId = 19730; // <-- Replace with the id of your plugin!
+        Metrics metrics = new Metrics(this, pluginId);
 
     }
     @Override
